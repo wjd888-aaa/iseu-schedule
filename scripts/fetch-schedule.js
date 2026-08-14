@@ -4,6 +4,8 @@ const fs = require('fs');
 
 const HOST = 'rsp.iseu.by';
 const BASE = '/Raspisanie/TimeTable/Magistranty.aspx';
+const REQUEST_TIMEOUT_MS = 60000;
+const TOTAL_TIMEOUT_MS = 300000;
 
 const CONFIG = {
   faculty: '4',
@@ -41,6 +43,9 @@ function req(method, data) {
       let b = '';
       res.on('data', (c) => b += c);
       res.on('end', () => resolve(b));
+    });
+    r.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      r.destroy(new Error('站点响应超时（' + REQUEST_TIMEOUT_MS / 1000 + '秒无响应）'));
     });
     r.on('error', reject);
     if (data) r.write(data);
@@ -173,6 +178,10 @@ async function fetchSchedule() {
 }
 
 async function main() {
+  const guard = setTimeout(() => {
+    console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止（站点可能无响应）' }));
+    process.exit(1);
+  }, TOTAL_TIMEOUT_MS);
   try {
     const data = await fetchSchedule();
 
@@ -191,6 +200,7 @@ async function main() {
     data.previousHash = oldHash || null;
 
     fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
+    clearTimeout(guard);
     console.log(JSON.stringify({ status: 'ok', week: data.week, group: data.group, changed, hash: data.hash }));
   } catch (err) {
     console.error(JSON.stringify({ status: 'error', message: err.message }));
