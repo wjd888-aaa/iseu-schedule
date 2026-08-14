@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ISEU 硕士课程表</title>
+<link rel="manifest" href="manifest.json">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; min-height: 100vh; }
+
+.header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: #fff; padding: 24px 16px; text-align: center; }
+.header h1 { font-size: 22px; margin-bottom: 4px; }
+.header .sub { font-size: 13px; opacity: .85; }
+.header .meta { font-size: 12px; opacity: .7; margin-top: 6px; }
+
+.notif-bar { display: none; background: #fff3cd; color: #856404; padding: 10px 16px; text-align: center; font-size: 14px; border-bottom: 1px solid #ffeeba; }
+.notif-bar.show { display: block; }
+.notif-bar.error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+
+.container { max-width: 800px; margin: 0 auto; padding: 16px; }
+
+.week-info { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; justify-content: space-between; align-items: center; }
+.week-info .week-num { font-size: 20px; font-weight: 700; color: #1a73e8; }
+.week-info .week-date { font-size: 13px; color: #666; }
+
+.day-card { background: #fff; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.day-card.today { border: 2px solid #1a73e8; }
+.day-header { padding: 14px 16px; font-weight: 600; font-size: 15px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px; }
+.day-header .badge { background: #e8f0fe; color: #1a73e8; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.day-header .badge.today { background: #1a73e8; color: #fff; }
+.day-body { padding: 0; }
+.empty-day { padding: 20px 16px; text-align: center; color: #999; font-size: 14px; }
+
+.course-item { padding: 14px 16px; border-bottom: 1px solid #f5f5f5; }
+.course-item:last-child { border-bottom: none; }
+.course-time { font-size: 14px; font-weight: 600; color: #1a73e8; margin-bottom: 4px; }
+.course-subject { font-size: 15px; font-weight: 500; margin-bottom: 4px; }
+.course-type { display: inline-block; background: #e3f2fd; color: #1565c0; font-size: 11px; padding: 1px 8px; border-radius: 8px; margin-right: 6px; }
+.course-meta { font-size: 13px; color: #666; }
+.course-meta .sep { margin: 0 6px; color: #ccc; }
+
+.loading { text-align: center; padding: 60px 20px; color: #999; }
+.loading .spinner { width: 36px; height: 36px; border: 3px solid #e0e0e0; border-top-color: #1a73e8; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.footer { text-align: center; padding: 20px; font-size: 12px; color: #999; }
+.footer a { color: #1a73e8; text-decoration: none; }
+
+.btn { display: inline-block; background: #1a73e8; color: #fff; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #1557b0; }
+.btn-secondary { background: #e8f0fe; color: #1a73e8; }
+.btn-secondary:hover { background: #d2e3fc; }
+
+.notif-controls { display: flex; gap: 8px; justify-content: center; margin: 12px 0; flex-wrap: wrap; }
+
+@media (max-width: 480px) {
+  .header { padding: 18px 12px; }
+  .header h1 { font-size: 18px; }
+  .container { padding: 10px; }
+  .course-item { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📅 ISEU 硕士课程表</h1>
+  <div class="sub">白俄罗斯国际生态大学 · 课表查询系统</div>
+  <div class="meta" id="headerMeta">加载中...</div>
+</div>
+
+<div id="notifBar" class="notif-bar"></div>
+
+<div class="container">
+  <div id="notifControls" class="notif-controls"></div>
+
+  <div id="weekInfo" class="week-info">
+    <div>
+      <div class="week-num" id="weekNum">--</div>
+      <div class="week-date" id="weekDate">--</div>
+    </div>
+    <div>
+      <div style="font-size:14px;font-weight:600;text-align:right" id="groupName">--</div>
+      <div style="font-size:12px;color:#999;text-align:right" id="updateTime">--</div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <div>正在加载课表...</div>
+  </div>
+
+  <div id="scheduleContainer" style="display:none"></div>
+</div>
+
+<div class="footer">
+  数据来源: <a href="http://rsp.iseu.by/Raspisanie/TimeTable/Magistranty.aspx" target="_blank">rsp.iseu.by</a> ·
+  每30分钟自动更新 · <a href="#" onclick="event.preventDefault();location.reload()">手动刷新</a>
+</div>
+
+<script>
+const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+const WEEKDAYS_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const DATA_URL = 'schedule-data.json';
+
+async function loadData() {
+  const res = await fetch(DATA_URL + '?_=' + Date.now());
+  return await res.json();
+}
+
+function showNotif(msg, isError) {
+  const bar = document.getElementById('notifBar');
+  bar.textContent = msg;
+  bar.className = 'notif-bar show' + (isError ? ' error' : '');
+  if (!isError) setTimeout(() => { bar.className = 'notif-bar'; }, 8000);
+}
+
+function getDayIndex(dayRU) {
+  return WEEKDAYS_RU.findIndex((d) => dayRU.includes(d));
+}
+
+function render(data) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('scheduleContainer').style.display = 'block';
+
+  document.getElementById('weekNum').textContent = '第 ' + data.week.number + ' 周';
+  document.getElementById('weekDate').textContent = data.week.label;
+  document.getElementById('groupName').textContent = data.group;
+  const ft = new Date(data.fetchedAt);
+  document.getElementById('updateTime').textContent = '更新: ' + ft.toLocaleString('zh-CN');
+  document.getElementById('headerMeta').textContent = data.group + ' · 第' + data.week.number + '周 · ' + data.week.label;
+
+  if (data.changed) {
+    showNotif('📅 课表已更新！当前是最新课表', false);
+  }
+
+  const container = document.getElementById('scheduleContainer');
+  container.innerHTML = '';
+
+  const todayIdx = new Date().getDay();
+
+  if (!data.schedule || data.schedule.length === 0) {
+    container.innerHTML = '<div class="day-card"><div class="empty-day">📭 本周暂无课程安排</div></div>';
+    return;
+  }
+
+  for (const day of data.schedule) {
+    const dayIdx = getDayIndex(day.dayRU);
+    const isToday = dayIdx === todayIdx;
+
+    const card = document.createElement('div');
+    card.className = 'day-card' + (isToday ? ' today' : '');
+
+    const header = document.createElement('div');
+    header.className = 'day-header';
+    header.innerHTML = `<span>${day.dayCN} ${day.dayRU}</span>` +
+      (isToday ? '<span class="badge today">今天</span>' : '') +
+      (day.courses.length ? `<span class="badge">${day.courses.length}节</span>` : '');
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'day-body';
+
+    if (day.courses.length === 0) {
+      body.innerHTML = '<div class="empty-day">（无课）</div>';
+    } else {
+      for (const c of day.courses) {
+        const item = document.createElement('div');
+        item.className = 'course-item';
+
+        let html = '';
+        if (c.time) html += `<div class="course-time">⏰ ${c.time}</div>`;
+        const subjParts = [];
+        if (c.type) subjParts.push(`<span class="course-type">${c.type}</span>`);
+        if (c.subject) subjParts.push(`<span>${c.subject}</span>`);
+        if (subjParts.length) html += `<div class="course-subject">${subjParts.join(' ')}</div>`;
+
+        const metaParts = [];
+        if (c.teacher) metaParts.push(`👤 ${c.teacher}`);
+        if (c.room) metaParts.push(`🏫 ${c.room}`);
+        if (metaParts.length) html += `<div class="course-meta">${metaParts.join('<span class="sep">·</span>')}</div>`;
+
+        item.innerHTML = html;
+        body.appendChild(item);
+      }
+    }
+
+    card.appendChild(body);
+    container.appendChild(card);
+  }
+}
+
+async function checkNotificationSupport() {
+  const ctrl = document.getElementById('notifControls');
+  ctrl.innerHTML = '';
+
+  if ('Notification' in window) {
+    if (Notification.permission === 'granted') {
+      ctrl.innerHTML = '<button class="btn btn-secondary" onclick="testNotification()">🔔 通知已开启</button>';
+    } else if (Notification.permission === 'denied') {
+      ctrl.innerHTML = '<button class="btn btn-secondary" onclick="showNotif(\'通知已被浏览器阻止，请在浏览器设置中允许\', true)">🔕 通知已关闭</button>';
+    } else {
+      ctrl.innerHTML = '<button class="btn" onclick="requestNotification()">🔔 开启课表变更通知</button>';
+    }
+  }
+
+  if ('serviceWorker' in navigator) {
+    try {
+      await navigator.serviceWorker.register('sw.js');
+    } catch (_) {}
+  }
+}
+
+function requestNotification() {
+  Notification.requestPermission().then((perm) => {
+    if (perm === 'granted') {
+      showNotif('✅ 通知已开启！课表更新时会通知你', false);
+      checkNotificationSupport();
+    }
+  });
+}
+
+function testNotification() {
+  try {
+    new Notification('📅 ISEU 课表监控', {
+      body: '通知功能正常运作中 ✓',
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📅</text></svg>',
+    });
+  } catch (_) {}
+}
+
+async function init() {
+  checkNotificationSupport();
+
+  try {
+    const data = await loadData();
+    render(data);
+
+    if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (data.changed) {
+          reg.showNotification('📅 课表已更新', {
+            body: '第' + data.week.number + '周课表有变化，点击查看',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📅</text></svg>',
+            data: { url: window.location.href },
+          });
+        }
+      } catch (_) {}
+    }
+  } catch (err) {
+    document.getElementById('loading').innerHTML = '<div style="color:#dc3545">❌ 加载失败: ' + err.message + '</div>';
+    document.getElementById('headerMeta').textContent = '加载失败';
+    showNotif('❌ 无法加载课表数据，请检查网络', true);
+  }
+
+  // Auto refresh every 2 min
+  setInterval(async () => {
+    try {
+      const data = await loadData();
+      render(data);
+    } catch (_) {}
+  }, 120000);
+}
+
+init();
+</script>
+</body>
+</html>
