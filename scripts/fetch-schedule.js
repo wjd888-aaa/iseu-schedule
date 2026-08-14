@@ -7,6 +7,9 @@ const BASE = '/Raspisanie/TimeTable/Magistranty.aspx';
 const REQUEST_TIMEOUT_MS = 60000;
 const TOTAL_TIMEOUT_MS = 300000;
 
+const PAGE_URL = 'https://wjd888-aaa.github.io/iseu-schedule/';
+const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+
 const CONFIG = {
   faculty: '4',
   department: '2',
@@ -177,6 +180,55 @@ async function fetchSchedule() {
   };
 }
 
+function telegramMessage(data) {
+  const lines = [
+    '📅 ISEU 课表已更新',
+    `第 ${data.week.number} 周（${data.week.label}）· ${data.group}`,
+    PAGE_URL,
+  ];
+  const now = new Date().getDay();
+  const today = data.schedule.find((d) => WEEKDAYS_RU.findIndex((w) => d.dayRU.includes(w)) === now);
+  if (today && today.courses.length) {
+    lines.push('');
+    lines.push('🗓 今日课程:');
+    for (const c of today.courses) lines.push(`  ${c.time}  ${c.subject}`);
+  } else {
+    const next = data.schedule.find((d) => {
+      const i = WEEKDAYS_RU.findIndex((w) => d.dayRU.includes(w));
+      return i > now && d.courses.length;
+    });
+    if (next) {
+      lines.push('');
+      lines.push(`🗓 下次课程（${next.dayCN}）:`);
+      for (const c of next.courses) lines.push(`  ${c.time}  ${c.subject}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function telegramNotify(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return Promise.resolve();
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true });
+    const o = {
+      hostname: 'api.telegram.org',
+      path: '/bot' + token + '/sendMessage',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    };
+    const r = https.request(o, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => resolve());
+    });
+    r.setTimeout(15000, () => { r.destroy(new Error('telegram timeout')); });
+    r.on('error', () => resolve());
+    r.write(body);
+    r.end();
+  });
+}
+
 async function main() {
   const guard = setTimeout(() => {
     console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止（站点可能无响应）' }));
@@ -201,6 +253,10 @@ async function main() {
 
     fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
     clearTimeout(guard);
+
+    if (changed || !oldHash) {
+      await telegramNotify(telegramMessage(data));
+    }
     console.log(JSON.stringify({ status: 'ok', week: data.week, group: data.group, changed, hash: data.hash }));
   } catch (err) {
     console.error(JSON.stringify({ status: 'error', message: err.message }));

@@ -21,6 +21,9 @@ jobs:
 
       - name: Fetch schedule
         run: node scripts/fetch-schedule.js
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
       - name: Commit & push if changed
         run: |
