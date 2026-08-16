@@ -120,9 +120,12 @@ function buildSchedule(rows) {
 
 function hash(str) {
   let h = 0;
-  const s = str.replace(/__VIEWSTATE\|[^|]+\|/g, '').replace(/__EVENTVALIDATION\|[^|]+\|/g, '');
-  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+  for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; }
   return h.toString(36);
+}
+
+function scheduleHash(schedule) {
+  return hash(JSON.stringify(schedule));
 }
 
 async function fetchSchedule() {
@@ -176,7 +179,7 @@ async function fetchSchedule() {
     week: { label: wk.l, number: wn },
     group: grp.l,
     schedule: clean,
-    hash: hash(res),
+    hash: scheduleHash(clean),
   };
 }
 
@@ -251,12 +254,11 @@ async function main() {
     data.changed = changed;
     data.previousHash = oldHash || null;
 
-    fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
-    clearTimeout(guard);
-
     if (changed || !oldHash) {
+      fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
       await telegramNotify(telegramMessage(data));
     }
+    clearTimeout(guard);
     console.log(JSON.stringify({ status: 'ok', week: data.week, group: data.group, changed, hash: data.hash }));
   } catch (err) {
     console.error(JSON.stringify({ status: 'error', message: err.message }));
