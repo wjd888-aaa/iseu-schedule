@@ -14,7 +14,7 @@ const CONFIG = {
   faculty: '4',
   department: '2',
   course: '1',
-  groupAuto: true,
+  group: 'В51ЭК5',
 };
 
 function extract$(html, name) {
@@ -136,7 +136,10 @@ async function fetchSchedule() {
 
   const groups = getOptions(html, 'ddlGroup');
   if (!groups.length) throw new Error('No groups');
-  const grp = groups[groups.length - 1];
+  const grp = groups.find((g) => g.l === CONFIG.group || g.v === CONFIG.group);
+  if (!grp) {
+    throw new Error('指定组不存在：' + CONFIG.group + '（可选：' + groups.map((g) => g.l).join('、') + '）');
+  }
 
   const wk = closestWeek(html);
   if (!wk) throw new Error('No week');
