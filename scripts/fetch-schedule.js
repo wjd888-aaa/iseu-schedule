@@ -66,14 +66,20 @@ async function postback(html, target, params) {
   }));
 }
 
+function minskNow() {
+  return new Date(Date.now() + 3 * 3600 * 1000);
+}
+
 function closestWeek(html) {
   const opts = getOptions(html, 'ddlWeek');
-  const now = new Date();
+  const now = minskNow();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const monday = today - ((now.getUTCDay() + 6) % 7) * 86400000;
   let best = null, bd = Infinity;
   for (const o of opts) {
     const [d, m, y] = o.v.split(' ')[0].split('.');
-    const dt = new Date(+y, +m - 1, +d);
-    const diff = Math.abs(now - dt);
+    const dt = Date.UTC(+y, +m - 1, +d);
+    const diff = Math.abs(dt - monday);
     if (diff < bd) { bd = diff; best = o; }
   }
   return best;
@@ -192,7 +198,7 @@ function telegramMessage(data) {
     `第 ${data.week.number} 周（${data.week.label}）· ${data.group}`,
     PAGE_URL,
   ];
-  const now = new Date().getDay();
+  const now = minskNow().getUTCDay();
   const today = data.schedule.find((d) => WEEKDAYS_RU.findIndex((w) => d.dayRU.includes(w)) === now);
   if (today && today.courses.length) {
     lines.push('');
@@ -235,10 +241,15 @@ function telegramNotify(text) {
   });
 }
 
+function notifyError(message) {
+  return telegramNotify('❌ ISEU 课表抓取失败\n' + message + '\n' + PAGE_URL);
+}
+
 async function main() {
   const guard = setTimeout(() => {
-    console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止（站点可能无响应）' }));
-    process.exit(1);
+    const msg = '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止（站点可能无响应）';
+    console.error(JSON.stringify({ status: 'error', message: msg }));
+    notifyError(msg).then(() => process.exit(1));
   }, TOTAL_TIMEOUT_MS);
   try {
     const data = await fetchSchedule();
@@ -265,6 +276,8 @@ async function main() {
     console.log(JSON.stringify({ status: 'ok', week: data.week, group: data.group, changed, hash: data.hash }));
   } catch (err) {
     console.error(JSON.stringify({ status: 'error', message: err.message }));
+    clearTimeout(guard);
+    await notifyError(err.message);
     process.exit(1);
   }
 }
