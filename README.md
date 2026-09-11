@@ -53,7 +53,7 @@ const CONFIG = {
   faculty: '4',     // 学院编号
   department: '2',  // 形式编号
   course: '1',      // 年级编号
-  groupAuto: true,  // true=自动选最后一项
+  group: 'В51ЭК5',  // 组别编号
 };
 ```
 
