@@ -1,82 +1,83 @@
 const https = require('https');
-const http = require('http');
 const fs = require('fs');
+const path = require('path');
+const { URLSearchParams } = require('url');
 
-const HOST = 'rsp.iseu.by';
-const BASE = '/Raspisanie/TimeTable/Magistranty.aspx';
-const REQUEST_TIMEOUT_MS = 60000;
-const TOTAL_TIMEOUT_MS = 300000;
+const HOST = 'raspisanie.grsu.by';
+const BASE = '/TimeTable/UMU.aspx';
+const REQUEST_TIMEOUT_MS = 15000;
+const TOTAL_TIMEOUT_MS = 30000;
+const DATA_FILE = path.join(__dirname, '..', 'schedule-data.json');
 
 const PAGE_URL = 'https://wjd888-aaa.github.io/iseu-schedule/';
 const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
 const CONFIG = {
-  faculty: '4',
+  faculty: '3952',
   department: '2',
   course: '1',
-  group: 'В51ЭК5',
+  group: 'СДП-ТОВ-261',
+  groupValue: '19357',
 };
 
-function extract$(html, name) {
-  const m = html.match(new RegExp('name="' + name + '"[^>]*value="([^"]*)"'));
-  return m ? m[1] : '';
-}
-
-function getOptions(html, name) {
-  const match = html.match(new RegExp('<select name="' + name + '"[^>]*>([\\s\\S]*?)<\\/select>'));
-  if (!match) return [];
-  const r = [];
-  const re = /<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g;
-  let m;
-  while ((m = re.exec(match[1])) !== null) r.push({ v: m[1], l: m[2].trim() });
-  return r;
-}
-
-function enc(o) {
-  return Object.entries(o).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v || '')).join('&');
-}
-
-function req(method, data) {
+function getPage() {
   return new Promise((resolve, reject) => {
-    const o = {
-      hostname: HOST, path: BASE, method,
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded' },
-    };
-    const r = http.request(o, (res) => {
+    const o = { hostname: HOST, port: 443, path: BASE, method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html,*/*' } };
+    const r = https.request(o, (res) => {
       let b = '';
       res.on('data', (c) => b += c);
       res.on('end', () => resolve(b));
     });
-    r.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      r.destroy(new Error('站点响应超时（' + REQUEST_TIMEOUT_MS / 1000 + '秒无响应）'));
-    });
+    r.setTimeout(REQUEST_TIMEOUT_MS, () => { r.destroy(new Error('站点响应超时')); });
     r.on('error', reject);
-    if (data) r.write(data);
     r.end();
   });
 }
 
-async function postback(html, target, params) {
-  return req('POST', enc({
-    __EVENTTARGET: target || '', __EVENTARGUMENT: '', __LASTFOCUS: '',
-    __VIEWSTATE: extract$(html, '__VIEWSTATE'),
-    __VIEWSTATEGENERATOR: extract$(html, '__VIEWSTATEGENERATOR'),
-    __EVENTVALIDATION: extract$(html, '__EVENTVALIDATION'),
-    ...params,
-  }));
+function postPage(formData) {
+  const postData = formData.toString();
+  return new Promise((resolve, reject) => {
+    const o = {
+      hostname: HOST, port: 443, path: BASE, method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+        'Referer': 'https://' + HOST + BASE,
+        'Origin': 'https://' + HOST,
+        'Connection': 'keep-alive',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+      timeout: REQUEST_TIMEOUT_MS, rejectUnauthorized: false,
+    };
+    const r = https.request(o, (res) => {
+      let b = '';
+      res.on('data', (c) => b += c);
+      res.on('end', () => resolve(b));
+    });
+    r.setTimeout(REQUEST_TIMEOUT_MS, () => { r.destroy(new Error('站点响应超时')); });
+    r.on('error', reject);
+    r.write(postData);
+    r.end();
+  });
 }
 
-function closestWeek(html) {
-  const opts = getOptions(html, 'ddlWeek');
-  const now = new Date();
-  let best = null, bd = Infinity;
-  for (const o of opts) {
-    const [d, m, y] = o.v.split(' ')[0].split('.');
-    const dt = new Date(+y, +m - 1, +d);
-    const diff = Math.abs(now - dt);
-    if (diff < bd) { bd = diff; best = o; }
-  }
-  return best;
+function extractVal(html, name) {
+  const m = html.match(new RegExp('name="' + name + '"[^>]*value="([^"]*)"'));
+  return m ? m[1] : '';
+}
+
+function extractSelect(html, name) {
+  const selMatch = html.match(new RegExp('<select[^>]*name="' + name + '"[^>]*>([\\s\\S]*?)</select>'));
+  if (!selMatch) return [];
+  const opts = selMatch[1].match(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g);
+  if (!opts) return [];
+  return opts.map(o => ({
+    v: o.match(/value="([^"]*)"/)?.[1] || '',
+    l: o.match(/>([^<]*)<\/option>/)?.[1]?.trim() || '',
+    selected: o.includes('selected'),
+  }));
 }
 
 function parseTable(html) {
@@ -129,43 +130,62 @@ function scheduleHash(schedule) {
 }
 
 async function fetchSchedule() {
-  let html = await req('GET');
-  html = await postback(html, 'ddlFac', { ddlFac: CONFIG.faculty, ddlDep: '', ddlCourse: '', ddlGroup: '', ddlWeek: '' });
-  html = await postback(html, 'ddlDep', { ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: '', ddlGroup: '', ddlWeek: '' });
-  html = await postback(html, 'ddlCourse', { ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: CONFIG.course, ddlGroup: '', ddlWeek: '' });
+  const page = await getPage();
 
-  const groups = getOptions(html, 'ddlGroup');
-  if (!groups.length) throw new Error('No groups');
-  const grp = groups.find((g) => g.l === CONFIG.group || g.v === CONFIG.group);
-  if (!grp) {
-    throw new Error('指定组不存在：' + CONFIG.group + '（可选：' + groups.map((g) => g.l).join('、') + '）');
+  const viewState = extractVal(page, '__VIEWSTATE');
+  const viewStateGen = extractVal(page, '__VIEWSTATEGENERATOR');
+  const eventValidation = extractVal(page, '__EVENTVALIDATION');
+
+  const weeks = extractSelect(page, 'ddlWeek');
+  const now = new Date();
+  let bestWeek = null, bestDiff = Infinity;
+  for (const w of weeks) {
+    if (!w.v) continue;
+    const parts = w.v.split(' ')[0].split('.');
+    const dt = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+    const diff = Math.abs(now - dt);
+    if (diff < bestDiff) { bestDiff = diff; bestWeek = w; }
   }
+  if (!bestWeek) throw new Error('No week found');
 
-  const wk = closestWeek(html);
-  if (!wk) throw new Error('No week');
+  const faculties = extractSelect(page, 'ddlFaculty');
+  const defaultFaculty = faculties.find((f) => f.selected) || faculties[0];
+  const groups = extractSelect(page, 'ddlGroups');
+  const defaultGroup = groups.find((g) => g.selected) || groups[0];
 
-  const res = await postback(html, 'btnShow', {
-    ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: CONFIG.course,
-    ddlGroup: grp.v, ddlWeek: wk.v,
-    btnShow: '\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C',
-  });
+  const params = new URLSearchParams();
+  params.set('__EVENTTARGET', '');
+  params.set('__EVENTARGUMENT', '');
+  params.set('__LASTFOCUS', '');
+  params.set('__VIEWSTATE', viewState);
+  params.set('__VIEWSTATEGENERATOR', viewStateGen);
+  params.set('__EVENTVALIDATION', eventValidation);
+  params.set('ddlFaculty', defaultFaculty.v);
+  params.set('ddlDepartment', CONFIG.department);
+  params.set('ddlCourses', CONFIG.course);
+  params.set('ddlGroups', CONFIG.groupValue);
+  params.set('ddlWeek', bestWeek.v);
+  params.set('btnShowTT', '\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C');
+  params.set('iframeheight', '0');
 
-  const rows = parseTable(res);
+  const result = await postPage(params);
+
+  const rows = parseTable(result);
+  if (!rows.length) throw new Error('No schedule data');
+
   const schedule = buildSchedule(rows);
 
-  const [d, m, y] = wk.l.split('.');
+  const [d, m, y] = bestWeek.v.split(' ')[0].split('.');
   const dt = new Date(+y, +m - 1, +d);
   const wn = Math.ceil(((dt - new Date(+y, 0, 1)) / 86400000 + new Date(+y, 0, 1).getDay() + 1) / 7);
 
-  const wkDaysRU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-  const wkDaysEN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const wkDaysCN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
   const clean = schedule.map((day) => {
-    const idx = wkDaysRU.findIndex((x) => day.name.includes(x));
+    const idx = WEEKDAYS_RU.findIndex((x) => day.name.includes(x));
     return {
       dayCN: wkDaysCN[idx] || '',
-      dayEN: wkDaysEN[idx] || '',
+      dayEN: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][idx] || '',
       dayRU: day.name,
       courses: day.courses.map((c) => ({
         time: c[0] || '',
@@ -179,8 +199,8 @@ async function fetchSchedule() {
 
   return {
     fetchedAt: new Date().toISOString(),
-    week: { label: wk.l, number: wn },
-    group: grp.l,
+    week: { label: bestWeek.l, number: wn },
+    group: CONFIG.group,
     schedule: clean,
     hash: scheduleHash(clean),
   };
@@ -237,7 +257,7 @@ function telegramNotify(text) {
 
 async function main() {
   const guard = setTimeout(() => {
-    console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止（站点可能无响应）' }));
+    console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止' }));
     process.exit(1);
   }, TOTAL_TIMEOUT_MS);
   try {
@@ -246,7 +266,7 @@ async function main() {
     let changed = false;
     let oldHash = '';
     try {
-      const old = JSON.parse(fs.readFileSync('schedule-data.json', 'utf8'));
+      const old = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       oldHash = old.hash || '';
     } catch (_) {}
 
@@ -258,7 +278,7 @@ async function main() {
     data.previousHash = oldHash || null;
 
     if (changed || !oldHash) {
-      fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
+      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
       await telegramNotify(telegramMessage(data));
     }
     clearTimeout(guard);
