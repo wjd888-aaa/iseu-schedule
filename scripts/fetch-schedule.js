@@ -5,8 +5,8 @@ const { URLSearchParams } = require('url');
 
 const HOST = 'raspisanie.grsu.by';
 const BASE = '/TimeTable/UMU.aspx';
-const REQUEST_TIMEOUT_MS = 15000;
-const TOTAL_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 30000;
+const TOTAL_TIMEOUT_MS = 60000;
 const DATA_FILE = path.join(__dirname, '..', 'schedule-data.json');
 
 const PAGE_URL = 'https://wjd888-aaa.github.io/iseu-schedule/';
@@ -20,9 +20,17 @@ const CONFIG = {
   groupValue: '19357',
 };
 
-function getPage() {
+function httpGet(path) {
   return new Promise((resolve, reject) => {
-    const o = { hostname: HOST, port: 443, path: BASE, method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html,*/*' } };
+    const o = {
+      hostname: HOST, port: 443, path: path, method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+      },
+      timeout: REQUEST_TIMEOUT_MS, rejectUnauthorized: false,
+    };
     const r = https.request(o, (res) => {
       let b = '';
       res.on('data', (c) => b += c);
@@ -34,11 +42,11 @@ function getPage() {
   });
 }
 
-function postPage(formData) {
+function httpPost(path, formData) {
   const postData = formData.toString();
   return new Promise((resolve, reject) => {
     const o = {
-      hostname: HOST, port: 443, path: BASE, method: 'POST',
+      hostname: HOST, port: 443, path: path, method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -61,6 +69,17 @@ function postPage(formData) {
     r.write(postData);
     r.end();
   });
+}
+
+async function retryRequest(fn, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === retries) throw e;
+      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+    }
+  }
 }
 
 function extractVal(html, name) {
@@ -130,7 +149,7 @@ function scheduleHash(schedule) {
 }
 
 async function fetchSchedule() {
-  const page = await getPage();
+  const page = await retryRequest(() => httpGet(BASE));
 
   const viewState = extractVal(page, '__VIEWSTATE');
   const viewStateGen = extractVal(page, '__VIEWSTATEGENERATOR');
@@ -168,7 +187,7 @@ async function fetchSchedule() {
   params.set('btnShowTT', '\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C');
   params.set('iframeheight', '0');
 
-  const result = await postPage(params);
+  const result = await retryRequest(() => httpPost(BASE, params));
 
   const rows = parseTable(result);
   if (!rows.length) throw new Error('No schedule data');
