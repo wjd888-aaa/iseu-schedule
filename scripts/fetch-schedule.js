@@ -1,102 +1,91 @@
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { URLSearchParams } = require('url');
 
-const HOST = 'raspisanie.grsu.by';
-const BASE = '/TimeTable/UMU.aspx';
-const REQUEST_TIMEOUT_MS = 30000;
-const TOTAL_TIMEOUT_MS = 60000;
-const DATA_FILE = path.join(__dirname, '..', 'schedule-data.json');
+const HOST = 'rsp.iseu.by';
+const BASE = '/Raspisanie/TimeTable/Magistranty.aspx';
+const REQUEST_TIMEOUT_MS = 60000;
+const TOTAL_TIMEOUT_MS = 300000;
+const NOTIFY_FILE = path.join(__dirname, '..', 'notification.txt');
 
 const PAGE_URL = 'https://wjd888-aaa.github.io/iseu-schedule/';
 const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
 const CONFIG = {
-  faculty: '3952',
+  faculty: '4',
   department: '2',
   course: '1',
-  group: 'СДП-ТОВ-261',
-  groupValue: '19357',
+  group: 'В51ЭК5',
 };
 
-function httpGet(path) {
-  return new Promise((resolve, reject) => {
-    const o = {
-      hostname: HOST, port: 443, path: path, method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
-      },
-      timeout: REQUEST_TIMEOUT_MS, rejectUnauthorized: false,
-    };
-    const r = https.request(o, (res) => {
-      let b = '';
-      res.on('data', (c) => b += c);
-      res.on('end', () => resolve(b));
-    });
-    r.setTimeout(REQUEST_TIMEOUT_MS, () => { r.destroy(new Error('站点响应超时')); });
-    r.on('error', reject);
-    r.end();
-  });
-}
-
-function httpPost(path, formData) {
-  const postData = formData.toString();
-  return new Promise((resolve, reject) => {
-    const o = {
-      hostname: HOST, port: 443, path: path, method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
-        'Referer': 'https://' + HOST + BASE,
-        'Origin': 'https://' + HOST,
-        'Connection': 'keep-alive',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-      timeout: REQUEST_TIMEOUT_MS, rejectUnauthorized: false,
-    };
-    const r = https.request(o, (res) => {
-      let b = '';
-      res.on('data', (c) => b += c);
-      res.on('end', () => resolve(b));
-    });
-    r.setTimeout(REQUEST_TIMEOUT_MS, () => { r.destroy(new Error('站点响应超时')); });
-    r.on('error', reject);
-    r.write(postData);
-    r.end();
-  });
-}
-
-async function retryRequest(fn, retries = 2) {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (i === retries) throw e;
-      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
-    }
-  }
-}
-
-function extractVal(html, name) {
+function extract$(html, name) {
   const m = html.match(new RegExp('name="' + name + '"[^>]*value="([^"]*)"'));
   return m ? m[1] : '';
 }
 
-function extractSelect(html, name) {
-  const selMatch = html.match(new RegExp('<select[^>]*name="' + name + '"[^>]*>([\\s\\S]*?)</select>'));
-  if (!selMatch) return [];
-  const opts = selMatch[1].match(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g);
-  if (!opts) return [];
-  return opts.map(o => ({
-    v: o.match(/value="([^"]*)"/)?.[1] || '',
-    l: o.match(/>([^<]*)<\/option>/)?.[1]?.trim() || '',
-    selected: o.includes('selected'),
+function getOptions(html, name) {
+  const match = html.match(new RegExp('<select name="' + name + '"[^>]*>([\\s\\S]*?)<\\/select>'));
+  if (!match) return [];
+  const r = [];
+  const re = /<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g;
+  let m;
+  while ((m = re.exec(match[1])) !== null) r.push({ v: m[1], l: m[2].trim() });
+  return r;
+}
+
+function enc(o) {
+  return Object.entries(o).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v || '')).join('&');
+}
+
+function req(method, data) {
+  return new Promise((resolve, reject) => {
+    const o = {
+      hostname: HOST, path: BASE, method,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded' },
+    };
+    const r = http.request(o, (res) => {
+      let b = '';
+      res.on('data', (c) => b += c);
+      res.on('end', () => resolve(b));
+    });
+    r.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      r.destroy(new Error('站点响应超时（' + REQUEST_TIMEOUT_MS / 1000 + '秒无响应）'));
+    });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
+}
+
+async function postback(html, target, params) {
+  return req('POST', enc({
+    __EVENTTARGET: target || '', __EVENTARGUMENT: '', __LASTFOCUS: '',
+    __VIEWSTATE: extract$(html, '__VIEWSTATE'),
+    __VIEWSTATEGENERATOR: extract$(html, '__VIEWSTATEGENERATOR'),
+    __EVENTVALIDATION: extract$(html, '__EVENTVALIDATION'),
+    ...params,
   }));
+}
+
+function weekDate(o) {
+  const [d, m, y] = o.v.split(' ')[0].split('.');
+  return new Date(+y, +m - 1, +d);
+}
+
+function candidateWeeks(html) {
+  const now = new Date();
+  const all = getOptions(html, 'ddlWeek')
+    .map((o) => ({ o, dt: weekDate(o) }))
+    .sort((a, b) => a.dt - b.dt);
+  const past = all.filter((w) => w.dt <= now);
+  const future = all.filter((w) => w.dt > now);
+  const current = past.pop() || null;
+  return (current ? [current] : []).concat(future, past.reverse());
+}
+
+function hasCourses(rows) {
+  return buildSchedule(rows).some((d) => d.courses.length > 0);
 }
 
 function parseTable(html) {
@@ -149,77 +138,68 @@ function scheduleHash(schedule) {
 }
 
 async function fetchSchedule() {
-  const page = await retryRequest(() => httpGet(BASE));
+  let html = await req('GET');
+  html = await postback(html, 'ddlFac', { ddlFac: CONFIG.faculty, ddlDep: '', ddlCourse: '', ddlGroup: '', ddlWeek: '' });
+  html = await postback(html, 'ddlDep', { ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: '', ddlGroup: '', ddlWeek: '' });
+  html = await postback(html, 'ddlCourse', { ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: CONFIG.course, ddlGroup: '', ddlWeek: '' });
 
-  const viewState = extractVal(page, '__VIEWSTATE');
-  const viewStateGen = extractVal(page, '__VIEWSTATEGENERATOR');
-  const eventValidation = extractVal(page, '__EVENTVALIDATION');
-
-  const weeks = extractSelect(page, 'ddlWeek');
-  const now = new Date();
-  let bestWeek = null, bestDiff = Infinity;
-  for (const w of weeks) {
-    if (!w.v) continue;
-    const parts = w.v.split(' ')[0].split('.');
-    const dt = new Date(+parts[2], +parts[1] - 1, +parts[0]);
-    const diff = Math.abs(now - dt);
-    if (diff < bestDiff) { bestDiff = diff; bestWeek = w; }
+  const groups = getOptions(html, 'ddlGroup');
+  if (!groups.length) throw new Error('No groups');
+  const grp = groups.find((g) => g.l === CONFIG.group || g.v === CONFIG.group);
+  if (!grp) {
+    throw new Error('指定组不存在：' + CONFIG.group + '（可选：' + groups.map((g) => g.l).join('、') + '）');
   }
-  if (!bestWeek) throw new Error('No week found');
 
-  const faculties = extractSelect(page, 'ddlFaculty');
-  const defaultFaculty = faculties.find((f) => f.selected) || faculties[0];
-  const groups = extractSelect(page, 'ddlGroups');
-  const defaultGroup = groups.find((g) => g.selected) || groups[0];
+  const candidates = candidateWeeks(html);
+  if (!candidates.length) throw new Error('No week');
+  const currentWeekValue = candidates[0].o.v;
 
-  const params = new URLSearchParams();
-  params.set('__EVENTTARGET', '');
-  params.set('__EVENTARGUMENT', '');
-  params.set('__LASTFOCUS', '');
-  params.set('__VIEWSTATE', viewState);
-  params.set('__VIEWSTATEGENERATOR', viewStateGen);
-  params.set('__EVENTVALIDATION', eventValidation);
-  params.set('ddlFaculty', defaultFaculty.v);
-  params.set('ddlDepartment', CONFIG.department);
-  params.set('ddlCourses', CONFIG.course);
-  params.set('ddlGroups', CONFIG.groupValue);
-  params.set('ddlWeek', bestWeek.v);
-  params.set('btnShowTT', '\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C');
-  params.set('iframeheight', '0');
-
-  const result = await retryRequest(() => httpPost(BASE, params));
-
-  const rows = parseTable(result);
-  if (!rows.length) throw new Error('No schedule data');
+  let wk = candidates[0].o;
+  let rows = [];
+  for (const c of candidates) {
+    const res = await postback(html, 'btnShow', {
+      ddlFac: CONFIG.faculty, ddlDep: CONFIG.department, ddlCourse: CONFIG.course,
+      ddlGroup: grp.v, ddlWeek: c.o.v,
+      btnShow: '\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C',
+    });
+    const parsed = parseTable(res);
+    if (hasCourses(parsed)) { wk = c.o; rows = parsed; break; }
+  }
+  if (!hasCourses(rows)) throw new Error('No schedule data for group ' + grp.l);
 
   const schedule = buildSchedule(rows);
 
-  const [d, m, y] = bestWeek.v.split(' ')[0].split('.');
+  const [d, m, y] = wk.l.split('.');
   const dt = new Date(+y, +m - 1, +d);
   const wn = Math.ceil(((dt - new Date(+y, 0, 1)) / 86400000 + new Date(+y, 0, 1).getDay() + 1) / 7);
 
+  const wkDaysRU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+  const wkDaysEN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const wkDaysCN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
   const clean = schedule.map((day) => {
-    const idx = WEEKDAYS_RU.findIndex((x) => day.name.includes(x));
+    const idx = wkDaysRU.findIndex((x) => day.name.includes(x));
     return {
       dayCN: wkDaysCN[idx] || '',
-      dayEN: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][idx] || '',
+      dayEN: wkDaysEN[idx] || '',
       dayRU: day.name,
-      courses: day.courses.map((c) => ({
-        time: c[0] || '',
-        type: c[1] || '',
-        subject: c[2] || '',
-        teacher: c[3] || '',
-        room: c[4] || '',
-      })),
+      courses: day.courses.map((c) => {
+        const [typePart, ...subjectParts] = (c[1] || '').split('. ');
+        return {
+          time: c[0] || '',
+          type: (typePart || '').trim(),
+          subject: (subjectParts.join('. ') || '').trim(),
+          teacher: (c[2] || '').trim(),
+          room: (c[3] || '').trim(),
+        };
+      }),
     };
   });
 
   return {
     fetchedAt: new Date().toISOString(),
-    week: { label: bestWeek.l, number: wn },
-    group: CONFIG.group,
+    week: { label: wk.l, number: wn, isCurrent: wk.v === currentWeekValue },
+    group: grp.l,
     schedule: clean,
     hash: scheduleHash(clean),
   };
@@ -274,38 +254,43 @@ function telegramNotify(text) {
   });
 }
 
-async function main() {
-  const guard = setTimeout(() => {
-    console.error(JSON.stringify({ status: 'error', message: '总用时超过 ' + TOTAL_TIMEOUT_MS / 1000 + ' 秒，终止' }));
-    process.exit(1);
-  }, TOTAL_TIMEOUT_MS);
+async function checkAndNotify() {
+  let oldHash = '';
+  try { const old = JSON.parse(fs.readFileSync('schedule-data.json', 'utf8')); oldHash = old.hash || ''; } catch (_) {}
   try {
     const data = await fetchSchedule();
-
-    let changed = false;
-    let oldHash = '';
-    try {
-      const old = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      oldHash = old.hash || '';
-    } catch (_) {}
-
+    data.previousHash = oldHash;
     if (oldHash && oldHash !== data.hash) {
-      changed = true;
+      console.log('[CHANGE] 课表已变更！');
+      data.changed = true;
+      fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
+      fs.writeFileSync(NOTIFY_FILE, JSON.stringify({ message: telegramMessage(data), time: new Date().toISOString() }, null, 2), 'utf8');
+      console.log('[NOTIFY] 通知已写入 notification.txt');
+    } else if (!oldHash) {
+      console.log('[INIT] 首次获取课表');
+      data.changed = false;
+      data.previousHash = null;
+      fs.writeFileSync('schedule-data.json', JSON.stringify(data, null, 2));
+    } else {
+      console.log('[OK] 课表无变化');
     }
-
-    data.changed = changed;
-    data.previousHash = oldHash || null;
-
-    if (changed || !oldHash) {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-      await telegramNotify(telegramMessage(data));
-    }
-    clearTimeout(guard);
-    console.log(JSON.stringify({ status: 'ok', week: data.week, group: data.group, changed, hash: data.hash }));
+    console.log(JSON.stringify({ status: 'ok', group: data.group, changed: data.changed, hash: data.hash }));
   } catch (err) {
     console.error(JSON.stringify({ status: 'error', message: err.message }));
-    process.exit(1);
+    process.exitCode = 1;
   }
+}
+
+function main() {
+  const INTERVAL_MS = 30 * 60 * 1000;
+  if (process.env.WATCH === '1') {
+    console.log('课表监控已启动，每30分钟检查一次...');
+    console.log(`配置: ${CONFIG.group} /  faculty=${CONFIG.faculty} dept=${CONFIG.department} course=${CONFIG.course}`);
+    checkAndNotify();
+    setInterval(checkAndNotify, INTERVAL_MS);
+    return;
+  }
+  checkAndNotify();
 }
 
 main();

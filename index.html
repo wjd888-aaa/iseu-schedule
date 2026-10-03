@@ -129,7 +129,8 @@ function render(data) {
   document.getElementById('groupName').textContent = data.group;
   const ft = new Date(data.fetchedAt);
   document.getElementById('updateTime').textContent = '更新: ' + ft.toLocaleString('zh-CN');
-  document.getElementById('headerMeta').textContent = data.group + ' · 第' + data.week.number + '周 · ' + data.week.label;
+  const wkNote = data.week.isCurrent === false ? '（本周暂无排课，显示最近有课周次）' : '';
+  document.getElementById('headerMeta').textContent = data.group + ' · 第' + data.week.number + '周 · ' + data.week.label + wkNote;
 
   if (data.changed) {
     showNotif('📅 课表已更新！当前是最新课表', false);
