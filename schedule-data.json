@@ -1,5 +1,5 @@
 {
-  "fetchedAt": "2026-10-03T15:37:54.722Z",
+  "fetchedAt": "2026-10-04T00:16:45.101Z",
   "week": {
     "label": "05.10.2026",
     "number": 41,
@@ -48,7 +48,7 @@
           "time": "11:05-12:25",
           "type": "практ",
           "subject": "зан. Компьютерная визуализация экологической информации",
-          "teacher": "доц. Сыса А.Г.",
+          "teacher": "доц. С��са А.Г.",
           "room": "ауд. 309, К1"
         },
         {
@@ -73,7 +73,7 @@
       "courses": []
     }
   ],
-  "hash": "a7b8rc",
-  "previousHash": "ueb0y6",
+  "hash": "8ik0xr",
+  "previousHash": "a7b8rc",
   "changed": true
 }
