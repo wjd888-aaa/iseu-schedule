@@ -1,5 +1,5 @@
 {
-  "fetchedAt": "2026-11-09T12:22:53.584Z",
+  "fetchedAt": "2026-11-09T22:35:12.944Z",
   "week": {
     "label": "09.11.2026",
     "number": 46,
@@ -8,9 +8,9 @@
   "group": "В51ЭК5",
   "schedule": [
     {
-      "dayCN": "",
-      "dayEN": "",
-      "dayRU": "Понедельни�� 09.11.2026",
+      "dayCN": "周一",
+      "dayEN": "Mon",
+      "dayRU": "Понедельник 09.11.2026",
       "courses": [
         {
           "time": "09:35-10:55",
@@ -88,7 +88,7 @@
       "courses": []
     }
   ],
-  "hash": "yq9fsx",
-  "previousHash": "9ifs4x",
+  "hash": "9ifs4x",
+  "previousHash": "yq9fsx",
   "changed": true
 }
