@@ -1,5 +1,5 @@
 {
-  "fetchedAt": "2026-11-20T16:33:09.610Z",
+  "fetchedAt": "2026-11-20T22:52:51.500Z",
   "week": {
     "label": "16.11.2026",
     "number": 47,
@@ -15,7 +15,7 @@
         {
           "time": "09:35-10:55",
           "type": "практ",
-          "subject": "зан. Методы обработки экологич��ских данных",
+          "subject": "зан. Методы обработки экологических данных",
           "teacher": "доц. Сыса А.Г.",
           "room": "ауд. 415, К1"
         },
@@ -73,7 +73,7 @@
       "courses": []
     }
   ],
-  "hash": "mrxclh",
-  "previousHash": "5ybvrc",
+  "hash": "5ybvrc",
+  "previousHash": "mrxclh",
   "changed": true
 }
